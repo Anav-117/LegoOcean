@@ -37,10 +37,13 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="shader.frag">
+    <None Include="Shaders\shader.frag">
       <Filter>Shaders</Filter>
     </None>
-    <None Include="shader.vert">
+    <None Include="Shaders\shader.vert">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\shader.comp">
       <Filter>Shaders</Filter>
     </None>
   </ItemGroup>

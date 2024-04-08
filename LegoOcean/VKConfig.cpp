@@ -67,12 +67,18 @@ VulkanClass::VulkanClass(GLFWwindow* win) {
 	createImageViews();
 
 	createRenderPass();
+	createDescriptorSetLayout();
+	createDescriptorPools();
+
 	createGraphicsPipeline();
+	createComputePipeline();
 
 	createFramebuffers();
 
 	createCommandPool();
 	createCommandBuffer();
+
+	createPosBuffer();
 
 	createSyncObjects();
 
@@ -89,15 +95,42 @@ VulkanClass::~VulkanClass() {
 
 	vkDestroySwapchainKHR(logicalDevice, swapChain.__swapChain, nullptr);
 
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		vkDestroyBuffer(logicalDevice, transformBuffer[i], nullptr);
+		vkFreeMemory(logicalDevice, transformBufferMemory[i], nullptr);
+		for (size_t j = 0; j < 2; j++) {
+			vkDestroyBuffer(logicalDevice, posBuffer[i][j], nullptr);
+			vkFreeMemory(logicalDevice, posBufferMemory[i][j], nullptr);
+		}
+		vkDestroyBuffer(logicalDevice, computeUniformBuffer[i], nullptr);
+		vkFreeMemory(logicalDevice, computeUniformBufferMemory[i], nullptr);
+	}
+
+	delete basicShader;
+
+	vkDestroyDescriptorPool(logicalDevice, computeDescriptorPool, nullptr);
+	vkDestroyDescriptorSetLayout(logicalDevice, computeDescriptorSetLayout, nullptr);
+
+	vkDestroyDescriptorPool(logicalDevice, uniformDescriptorPool, nullptr);
+	vkDestroyDescriptorSetLayout(logicalDevice, transformDescriptorSetLayout, nullptr);
+
 	vkDestroyPipeline(logicalDevice, graphicsPipeline, nullptr);
 	vkDestroyPipelineLayout(logicalDevice, pipelineLayout, nullptr);
 	vkDestroyRenderPass(logicalDevice, renderPass, nullptr);
 
-	vkDestroySemaphore(logicalDevice, imageAvailableSemaphore, nullptr);
-	vkDestroySemaphore(logicalDevice, renderFinishedSempahore, nullptr);
-	vkDestroyFence(logicalDevice, inFlightFence, nullptr);
+	vkDestroyPipeline(logicalDevice, computePipeline, nullptr);
+	vkDestroyPipelineLayout(logicalDevice, computePipelineLayout, nullptr);
 
-	vkFreeCommandBuffers(logicalDevice, commandPool, 1, &commandBuffer);
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		vkDestroySemaphore(logicalDevice, imageAvailableSemaphore[i], nullptr);
+		vkDestroySemaphore(logicalDevice, renderFinishedSempahore[i], nullptr);
+		vkDestroyFence(logicalDevice, inFlightFence[i], nullptr);
+
+		vkDestroySemaphore(logicalDevice, computeFinishedSemaphores[i], nullptr);
+		vkDestroyFence(logicalDevice, computeInFlightFences[i], nullptr);
+	}
+
+	vkFreeCommandBuffers(logicalDevice, commandPool, swapChain.MAX_FRAMES_IN_FLIGHT, commandBuffer.data());
 	vkDestroyCommandPool(logicalDevice, commandPool, nullptr);
 
 	vkDestroyDevice(logicalDevice, nullptr);
@@ -162,7 +195,7 @@ bool VulkanClass::findQueueFamilies(VkPhysicalDevice device) {
 
 	uint32_t i = 0;
 	for (auto queueFamily : queueFamilies) {
-		if (queueFamily.queueFlags | VK_QUEUE_GRAPHICS_BIT > 0) {
+		if ((queueFamily.queueFlags | VK_QUEUE_GRAPHICS_BIT) && (queueFamily.queueFlags | VK_QUEUE_COMPUTE_BIT)) {
 			QueueFamilyIndex.graphicsFamily = i;
 			return true;
 		}
@@ -354,6 +387,14 @@ VkExtent2D SwapChain::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilit
 
 }
 
+void VulkanClass::createSurface() {
+
+	if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
+		throw std::runtime_error("Failed To Create Window Surface\n");
+	}
+
+}
+
 void VulkanClass::createSwapChain() {
 
 	swapChain.format = swapChain.findSwapChainFormat(SwapChainDetails.formats);
@@ -402,14 +443,6 @@ void VulkanClass::createSwapChain() {
 
 }
 
-void VulkanClass::createSurface() {
-
-	if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
-		throw std::runtime_error("Failed To Create Window Surface\n");
-	}
-
-}
-
 void VulkanClass::createImageViews() {
 
 	swapChain.imageViews.resize(swapChain.images.size());
@@ -434,6 +467,36 @@ void VulkanClass::createImageViews() {
 			throw std::runtime_error("Failed To Create Image View\n");
 		}
 	}
+
+}
+
+void VulkanClass::recreateSwapChain() {
+
+	int width, height;
+	glfwGetFramebufferSize(window, &width, &height);
+	while (width == 0 || height == 0) {
+		glfwGetFramebufferSize(window, &width, &height);
+		glfwWaitEvents();
+	}
+
+	vkDeviceWaitIdle(logicalDevice);
+
+	for (size_t i = 0; i < swapChain.framebuffers.size(); i++) {
+		vkDestroyFramebuffer(logicalDevice, swapChain.framebuffers[i], nullptr);
+	}
+	for (size_t i = 0; i < swapChain.imageViews.size(); i++) {
+		vkDestroyImageView(logicalDevice, swapChain.imageViews[i], nullptr);
+	}
+
+	vkDestroySwapchainKHR(logicalDevice, swapChain.__swapChain, nullptr);
+
+	if (!checkSwapChainSupport(physicalDevice)) {
+		throw std::runtime_error("SwapChain not Supported\n");
+	}
+
+	createSwapChain();
+	createImageViews();
+	createFramebuffers();
 
 }
 
@@ -479,16 +542,190 @@ void VulkanClass::createRenderPass() {
 
 }
 
+void VulkanClass::createDescriptorSetLayout() {
+
+	VkDescriptorSetLayoutBinding transformLayoutBinding{};
+	transformLayoutBinding.binding = 0;
+	transformLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	transformLayoutBinding.descriptorCount = 1;
+	transformLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+	VkDescriptorSetLayoutCreateInfo transformLayoutInfo{};
+	transformLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	transformLayoutInfo.bindingCount = 1;
+	transformLayoutInfo.pBindings = &transformLayoutBinding;
+
+	if (vkCreateDescriptorSetLayout(logicalDevice, &transformLayoutInfo, nullptr, &transformDescriptorSetLayout) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create Transform Descriptor Set layout\n");
+	}
+
+	std::vector<VkDescriptorSetLayoutBinding> computeLayoutBindings(3);
+	computeLayoutBindings[0].binding = 0;
+	computeLayoutBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	computeLayoutBindings[0].descriptorCount = 1;
+	computeLayoutBindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+	computeLayoutBindings[1].binding = 1;
+	computeLayoutBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	computeLayoutBindings[1].descriptorCount = 1;
+	computeLayoutBindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+	computeLayoutBindings[2].binding = 2;
+	computeLayoutBindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	computeLayoutBindings[2].descriptorCount = 1;
+	computeLayoutBindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+	VkDescriptorSetLayoutCreateInfo computeLayoutInfo{};
+	computeLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	computeLayoutInfo.bindingCount = 3;
+	computeLayoutInfo.pBindings = computeLayoutBindings.data();
+
+	if (vkCreateDescriptorSetLayout(logicalDevice, &computeLayoutInfo, nullptr, &computeDescriptorSetLayout) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Create Compute Descriptor Set Layout\n");
+	}
+}
+
+uint32_t VulkanClass::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+
+	VkPhysicalDeviceMemoryProperties memProperties;
+	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+		if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+			return i;
+		}
+	}
+
+	throw std::runtime_error("failed to find suitable memory type!");
+
+}
+
+void VulkanClass::createTransformBuffer(VkDeviceSize bufferSize) {
+
+	transformBuffer.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+	transformBufferMemory.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+	transformBufferMap.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		VkBufferCreateInfo bufferInfo{};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = bufferSize;
+		bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		if (vkCreateBuffer(logicalDevice, &bufferInfo, nullptr, &transformBuffer[i]) != VK_SUCCESS)
+			throw std::runtime_error("Failed To create Transform Uniform Buffer\n");
+
+		VkMemoryRequirements memreq;
+		vkGetBufferMemoryRequirements(logicalDevice, transformBuffer[i], &memreq);
+
+		VkMemoryAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memreq.size;
+		allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+		if(vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &transformBufferMemory[i]) != VK_SUCCESS)
+			throw std::runtime_error("Failed to Allocate Transform Uniform Buffer Memory\n6");
+
+		vkBindBufferMemory(logicalDevice, transformBuffer[i], transformBufferMemory[i], 0);
+
+		vkMapMemory(logicalDevice, transformBufferMemory[i], 0, bufferSize, 0, &transformBufferMap[i]);
+	}
+
+}
+
+void VulkanClass::createDescriptorPools() {
+
+	VkDescriptorPoolSize poolSize{};
+	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSize.descriptorCount = static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT);
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT);
+
+	if (vkCreateDescriptorPool(logicalDevice, &poolInfo, nullptr, &uniformDescriptorPool) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Create Uniform Descriptor Pool\n");
+	}
+
+	std::vector<VkDescriptorPoolSize> poolSizes(2);
+	poolSizes[0] = {};
+	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSizes[0].descriptorCount = static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT);
+	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	poolSizes[1].descriptorCount = static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT * 2);
+
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = poolSizes.size();
+	poolInfo.pPoolSizes = poolSizes.data();
+	poolInfo.maxSets = static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT);
+
+	if (vkCreateDescriptorPool(logicalDevice, &poolInfo, nullptr, &computeDescriptorPool) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Create Compute Descriptor Pool\n");
+	}
+
+}
+
+void VulkanClass::createTransformDescriptorSet() {
+
+	std::vector<VkDescriptorSetLayout> layouts(static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT), transformDescriptorSetLayout);
+
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = uniformDescriptorPool;
+	allocInfo.descriptorSetCount = static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT);
+	allocInfo.pSetLayouts = layouts.data();
+
+	transformDescriptorSet.resize(static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT));
+
+	if (vkAllocateDescriptorSets(logicalDevice, &allocInfo, transformDescriptorSet.data()) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Create Transform Descriptor Set\n");
+	}
+
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		VkDescriptorBufferInfo bufferInfo{};
+		bufferInfo.buffer = transformBuffer[i];
+		bufferInfo.offset = 0;
+		bufferInfo.range = sizeof(transform);
+
+		VkWriteDescriptorSet transformWrite{};
+		transformWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		transformWrite.dstSet = transformDescriptorSet[i];
+		transformWrite.dstBinding = 0;
+		transformWrite.dstArrayElement = 0;
+		transformWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		transformWrite.descriptorCount = 1;
+		transformWrite.pBufferInfo = &bufferInfo;
+
+		vkUpdateDescriptorSets(logicalDevice, 1, &transformWrite, 0, nullptr);
+	}
+
+}
+
 void VulkanClass::createGraphicsPipeline() {
 
-	Shader basicShader("shader", logicalDevice);
+	basicShader = new Shader("shader", logicalDevice);
+
+	VkVertexInputBindingDescription bindingDescription{};
+	bindingDescription.binding = 0;
+	bindingDescription.stride = sizeof(Particle);
+	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+	std::vector<VkVertexInputAttributeDescription> attributeDescriptions(1);
+
+	attributeDescriptions[0].binding = 0;
+	attributeDescriptions[0].location = 0;
+	attributeDescriptions[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	attributeDescriptions[0].offset = offsetof(Particle, pos);
 
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputInfo.vertexAttributeDescriptionCount = 0;
-	vertexInputInfo.vertexBindingDescriptionCount = 0;
-	vertexInputInfo.pVertexAttributeDescriptions = nullptr;
-	vertexInputInfo.pVertexBindingDescriptions = nullptr;
+	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+	vertexInputInfo.vertexBindingDescriptionCount = 1;
+	vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+	vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
 
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{};
 	inputAssemblyInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -520,8 +757,8 @@ void VulkanClass::createGraphicsPipeline() {
 	rasterInfo.rasterizerDiscardEnable = VK_FALSE;
 	rasterInfo.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterInfo.lineWidth = 1.0f;
-	rasterInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-	rasterInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	rasterInfo.cullMode = VK_CULL_MODE_NONE;
+	rasterInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterInfo.depthBiasEnable = VK_FALSE;
 
 	VkPipelineMultisampleStateCreateInfo multisampleInfo{};
@@ -540,6 +777,8 @@ void VulkanClass::createGraphicsPipeline() {
 
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &transformDescriptorSetLayout;
 
 	if (vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
 		throw std::runtime_error("Failed To Create Pipeline Layout\n");
@@ -550,8 +789,8 @@ void VulkanClass::createGraphicsPipeline() {
 
 	VkGraphicsPipelineCreateInfo graphicsPipelineInfo{};
 	graphicsPipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	graphicsPipelineInfo.stageCount = basicShader.shaderStageInfos.size();
-	graphicsPipelineInfo.pStages = basicShader.shaderStageInfos.data();
+	graphicsPipelineInfo.stageCount = basicShader->shaderStageInfos.size();
+	graphicsPipelineInfo.pStages = basicShader->shaderStageInfos.data();
 	graphicsPipelineInfo.pColorBlendState = &colorBlendGlobal;
 	graphicsPipelineInfo.pVertexInputState = &vertexInputInfo;
 	graphicsPipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
@@ -605,8 +844,8 @@ void VulkanClass::createCommandPool() {
 
 }
 
-void VulkanClass::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
-
+void VulkanClass::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, uint32_t currentFrame) {
+	
 	VkCommandBufferBeginInfo beginInfo{};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	
@@ -642,7 +881,13 @@ void VulkanClass::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t im
 	scissorRect.offset = { 0,0 };
 	//vkCmdSetScissor(commandBuffer, 0, 1, &scissorRect);
 
-	vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+	VkDeviceSize offsets[] = { 0 };
+
+	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &posBuffer[currentFrame][1], offsets);
+
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &transformDescriptorSet[currentFrame], 0, nullptr);
+
+	vkCmdDraw(commandBuffer, 36, 100, 0, 0);
 
 	vkCmdEndRenderPass(commandBuffer);
 
@@ -660,53 +905,83 @@ void VulkanClass::createCommandBuffer() {
 	allocInfo.commandBufferCount = 1;
 	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-	if (vkAllocateCommandBuffers(logicalDevice, &allocInfo, &commandBuffer) != VK_SUCCESS) {
-		throw std::runtime_error("Failed To Allocate Command Buffer\n");
+	commandBuffer.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		if (vkAllocateCommandBuffers(logicalDevice, &allocInfo, &commandBuffer[i]) != VK_SUCCESS) {
+			throw std::runtime_error("Failed To Allocate Command Buffer\n");
+		}
 	}
 
 }
 
 void VulkanClass::createSyncObjects() {
 
-	VkSemaphoreCreateInfo semaphoreInfo{};
-	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-	
-	
-	VkFenceCreateInfo fenceInfo{};
-	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-	fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+	imageAvailableSemaphore.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+	renderFinishedSempahore.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+	inFlightFence.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
 
-	if (vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
-		vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &renderFinishedSempahore) != VK_SUCCESS ||
-		vkCreateFence(logicalDevice, &fenceInfo, nullptr, &inFlightFence) != VK_SUCCESS) {
-		throw std::runtime_error("Failed To Create Sync Objects\n");
+	computeFinishedSemaphores.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+	computeInFlightFences.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		VkSemaphoreCreateInfo semaphoreInfo{};
+		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+
+		VkFenceCreateInfo fenceInfo{};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+		if (vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphore[i]) != VK_SUCCESS ||
+			vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &renderFinishedSempahore[i]) != VK_SUCCESS ||
+			vkCreateFence(logicalDevice, &fenceInfo, nullptr, &inFlightFence[i]) != VK_SUCCESS) {
+			throw std::runtime_error("Failed To Create Sync Objects\n");
+		}
+
+		if (vkCreateSemaphore(logicalDevice, &semaphoreInfo, nullptr, &computeFinishedSemaphores[i]) != VK_SUCCESS ||
+			vkCreateFence(logicalDevice, &fenceInfo, nullptr, &computeInFlightFences[i]) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to Create Compute Sync Objects\n");
+		}
 	}
 
 }
 
-void VulkanClass::draw(uint32_t& imageIndex) {
+void VulkanClass::draw(uint32_t imageIndex) {
 
-	vkAcquireNextImageKHR(logicalDevice, swapChain.__swapChain, UINT32_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+	uint32_t index;
 
-	vkResetCommandBuffer(commandBuffer, 0);
+	VkResult result = vkAcquireNextImageKHR(logicalDevice, swapChain.__swapChain, UINT32_MAX, imageAvailableSemaphore[imageIndex], VK_NULL_HANDLE, &index);
 
-	recordCommandBuffer(commandBuffer, imageIndex);
+	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+		recreateSwapChain();
+		std::cout << "NO WORK SUBMITTED\n";
+		return;
+	}
+
+	//std::cout << "WORK SUBMITTED\n";
+
+	vkResetFences(logicalDevice, 1, &inFlightFence[imageIndex]);
+
+	vkResetCommandBuffer(commandBuffer[imageIndex], 0);
+
+	recordCommandBuffer(commandBuffer[imageIndex], index, imageIndex);
 
 	VkSubmitInfo submitInfo{};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	
-	VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
-	VkSemaphore signalSemaphores[] = { renderFinishedSempahore };
-	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-	submitInfo.waitSemaphoreCount = 1;
+	VkSemaphore waitSemaphores[] = { computeFinishedSemaphores[imageIndex], imageAvailableSemaphore[imageIndex] };
+	VkSemaphore signalSemaphores[] = { renderFinishedSempahore[imageIndex] };
+	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+	submitInfo.waitSemaphoreCount = 2;
 	submitInfo.pWaitSemaphores = waitSemaphores;
 	submitInfo.pWaitDstStageMask = waitStages;
 	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &commandBuffer;
+	submitInfo.pCommandBuffers = &commandBuffer[imageIndex];
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = signalSemaphores;
 
-	if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS) {
+	if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence[imageIndex]) != VK_SUCCESS) {
 		throw std::runtime_error("Failed To Submit Draw Command\n");
 	}
 
@@ -718,8 +993,305 @@ void VulkanClass::draw(uint32_t& imageIndex) {
 	VkSwapchainKHR swapChains[] = { swapChain.__swapChain };
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = swapChains;
-	presentInfo.pImageIndices = &imageIndex;
+	presentInfo.pImageIndices = &index;
 
-	vkQueuePresentKHR(presentQueue, &presentInfo);
+	result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+	if (result == VK_ERROR_OUT_OF_DATE_KHR || framebufferResized) {
+		framebufferResized = false;
+		recreateSwapChain();
+		//std::cout<<"recreated swapchain\n";
+	}
+
+}
+
+void VulkanClass::updateTransform() {
+
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		memcpy(transformBufferMap[i], &transform, sizeof(transform));
+;	}
+
+}
+
+void VulkanClass::createPosBuffer() {
+
+	VkBufferCreateInfo posBufferCreateInfo{};
+	posBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	posBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	posBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	posBufferCreateInfo.size = sizeof(Particle) * 100;
+
+	posBuffer.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+	posBufferMemory.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+
+	computeUniformBuffer.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+	computeUniformBufferMemory.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+	computeUniformBufferMap.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		posBuffer[i].resize(2);
+		posBufferMemory[i].resize(2);
+		for (size_t j = 0; j < 2; j++) {
+			if (vkCreateBuffer(logicalDevice, &posBufferCreateInfo, nullptr, &posBuffer[i][j]) != VK_SUCCESS) {
+				throw std::runtime_error("Failed to Create Pos Buffer\n");
+			}
+
+			VkMemoryRequirements memreq;
+			vkGetBufferMemoryRequirements(logicalDevice, posBuffer[i][j], &memreq);
+
+			VkMemoryAllocateInfo allocInfo{};
+			allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+			allocInfo.allocationSize = memreq.size;
+			allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+			if (vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &posBufferMemory[i][j]) != VK_SUCCESS)
+				throw std::runtime_error("Failed to Allocate Transform Uniform Buffer Memory\n6");
+
+			vkBindBufferMemory(logicalDevice, posBuffer[i][j], posBufferMemory[i][j], 0);
+		}
+
+		VkBufferCreateInfo bufferInfo{};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = sizeof(ComputeUniforms);
+		bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		if (vkCreateBuffer(logicalDevice, &bufferInfo, nullptr, &computeUniformBuffer[i]) != VK_SUCCESS)
+			throw std::runtime_error("Failed To create Transform Uniform Buffer\n");
+
+		VkMemoryRequirements memreq;
+		vkGetBufferMemoryRequirements(logicalDevice, computeUniformBuffer[i], &memreq);
+
+		VkMemoryAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memreq.size;
+		allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+		if (vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &computeUniformBufferMemory[i]) != VK_SUCCESS)
+			throw std::runtime_error("Failed to Allocate Transform Uniform Buffer Memory\n6");
+
+		vkBindBufferMemory(logicalDevice, computeUniformBuffer[i], computeUniformBufferMemory[i], 0);
+
+		vkMapMemory(logicalDevice, computeUniformBufferMemory[i], 0, sizeof(ComputeUniforms), 0, &computeUniformBufferMap[i]);
+	}
+
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	VkBufferCreateInfo stagingBufferCreateInfo{};
+	stagingBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	stagingBufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	stagingBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	stagingBufferCreateInfo.size = sizeof(Particle) * 100;
+
+	vkCreateBuffer(logicalDevice, &stagingBufferCreateInfo, nullptr, &stagingBuffer);
+
+	VkMemoryRequirements memreq;
+	vkGetBufferMemoryRequirements(logicalDevice, stagingBuffer, &memreq);
+
+	VkMemoryAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memreq.size;
+	allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &stagingBufferMemory);
+
+	std::vector<Particle> particles;
+	for (size_t i = 0; i < 100; i++) {
+		Particle part;
+		part.pos = glm::vec4((((int)i % 10) - 5) * 2.5f, 0.0f, (((int)i / 10) - 5) * 2.5f, 1.0f);
+		particles.push_back(part);
+	}
+
+	std::cout << "\n\n\n";
+
+	vkBindBufferMemory(logicalDevice, stagingBuffer, stagingBufferMemory, 0);
+
+	void* data;
+	vkMapMemory(logicalDevice, stagingBufferMemory, 0, sizeof(Particle)*100, 0, &data);
+	memcpy(data, particles.data(), (size_t)(sizeof(Particle)*100));
+	vkUnmapMemory(logicalDevice, stagingBufferMemory);
+
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		for (size_t j = 0; j < 2; j++) {
+			VkCommandBufferAllocateInfo cmdAllocInfo{};
+			cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			cmdAllocInfo.commandPool = commandPool;
+			cmdAllocInfo.commandBufferCount = 1;
+
+			VkCommandBuffer copyCommandBuffer;
+			vkAllocateCommandBuffers(logicalDevice, &cmdAllocInfo, &copyCommandBuffer);
+
+			VkCommandBufferBeginInfo copyBeginInfo{};
+			copyBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			copyBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+			vkBeginCommandBuffer(copyCommandBuffer, &copyBeginInfo);
+
+			VkBufferCopy copyRegion{};
+			copyRegion.size = sizeof(Particle) * 100;
+			copyRegion.srcOffset = 0;
+			copyRegion.dstOffset = 0;
+			vkCmdCopyBuffer(copyCommandBuffer, stagingBuffer, posBuffer[i][j], 1, &copyRegion);
+
+			vkEndCommandBuffer(copyCommandBuffer);
+
+			VkSubmitInfo copySubmitInfo{};
+			copySubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			copySubmitInfo.commandBufferCount = 1;
+			copySubmitInfo.pCommandBuffers = &copyCommandBuffer;
+
+			vkQueueSubmit(graphicsQueue, 1, &copySubmitInfo, VK_NULL_HANDLE);
+			vkQueueWaitIdle(graphicsQueue);
+
+			vkFreeCommandBuffers(logicalDevice, commandPool, 1, &copyCommandBuffer);
+		}
+	}
+
+	vkDestroyBuffer(logicalDevice, stagingBuffer, nullptr);
+	vkFreeMemory(logicalDevice, stagingBufferMemory, nullptr);
+
+}
+
+void VulkanClass::createComputeDescriptorSet() {
+
+	std::vector<VkDescriptorSetLayout> layouts(static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT), computeDescriptorSetLayout);
+
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = computeDescriptorPool;
+	allocInfo.descriptorSetCount = static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT);
+	allocInfo.pSetLayouts = layouts.data();
+
+	computeDescriptorSets.resize(static_cast<uint32_t>(swapChain.MAX_FRAMES_IN_FLIGHT));
+
+	if (vkAllocateDescriptorSets(logicalDevice, &allocInfo, computeDescriptorSets.data()) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Create Compute Descriptor Set\n");
+	}
+
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+
+		std::vector<VkWriteDescriptorSet> descriptorWrites(3);
+		
+		VkDescriptorBufferInfo uniformBufferInfo{};
+		uniformBufferInfo.buffer = computeUniformBuffer[i];
+		uniformBufferInfo.offset = 0;
+		uniformBufferInfo.range = sizeof(ComputeUniforms);
+
+		descriptorWrites[0] = {};
+		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[0].descriptorCount = 1;
+		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptorWrites[0].dstBinding = 0;
+		descriptorWrites[0].dstArrayElement = 0;
+		descriptorWrites[0].dstSet = computeDescriptorSets[i];
+		descriptorWrites[0].pBufferInfo = &uniformBufferInfo;
+
+		VkDescriptorBufferInfo shaderStoragePrevFrame{};
+		shaderStoragePrevFrame.buffer = posBuffer[i][0];
+		shaderStoragePrevFrame.offset = 0;
+		shaderStoragePrevFrame.range = sizeof(Particle) * 100;
+
+		descriptorWrites[1] = {};
+		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[1].descriptorCount = 1;
+		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		descriptorWrites[1].dstBinding = 1;
+		descriptorWrites[1].dstArrayElement = 0;
+		descriptorWrites[1].dstSet = computeDescriptorSets[i];
+		descriptorWrites[1].pBufferInfo = &shaderStoragePrevFrame;
+
+		VkDescriptorBufferInfo shaderStorageNextFrame{};
+		shaderStorageNextFrame.buffer = posBuffer[i][1];
+		shaderStorageNextFrame.offset = 0;
+		shaderStorageNextFrame.range = sizeof(Particle) * 100;
+
+		descriptorWrites[2] = {};
+		descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[2].descriptorCount = 1;
+		descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		descriptorWrites[2].dstBinding = 2;
+		descriptorWrites[2].dstArrayElement = 0;
+		descriptorWrites[2].dstSet = computeDescriptorSets[i];
+		descriptorWrites[2].pBufferInfo = &shaderStorageNextFrame;
+
+		vkUpdateDescriptorSets(logicalDevice, 3, descriptorWrites.data(), 0, 0);
+
+	}
+
+}
+
+void VulkanClass::createComputePipeline() {
+
+	VkPipelineLayoutCreateInfo pipelineInfo{};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineInfo.setLayoutCount = 1;
+	pipelineInfo.pSetLayouts = &computeDescriptorSetLayout;
+
+	if (vkCreatePipelineLayout(logicalDevice, &pipelineInfo, nullptr, &computePipelineLayout) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Create Compute Pipeline Layout\n");
+	}
+
+	VkComputePipelineCreateInfo computePipelineInfo{};
+	computePipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+	computePipelineInfo.layout = computePipelineLayout;
+	computePipelineInfo.stage = basicShader->computeShaderStageInfo;
+
+	if (vkCreateComputePipelines(logicalDevice, VK_NULL_HANDLE, 1, &computePipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Create Compute Pipeline\n");
+	}
+
+}
+
+void VulkanClass::updateCompute() {
+
+	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
+		memcpy(computeUniformBufferMap[i], &computeUniform, sizeof(ComputeUniforms));
+	}
+
+}
+
+void VulkanClass::recordComputeCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+
+	VkCommandBufferBeginInfo beginInfo{};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+	if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Begin Recording Compute Command Buffer\n");
+	}
+
+	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSets[imageIndex], 0, 0);
+
+	vkCmdDispatch(commandBuffer, 100, 1, 1);
+
+	if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Record Compute Command Buffer\n");
+	}
+
+}
+
+void VulkanClass::dispatch(uint32_t imageIndex) {
+
+	vkResetFences(logicalDevice, 1, &computeInFlightFences[imageIndex]);
+
+	vkResetCommandBuffer(commandBuffer[imageIndex], 0);
+	recordComputeCommandBuffer(commandBuffer[imageIndex], imageIndex);
+
+	VkSubmitInfo submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+	VkSemaphore signalSemaphores[] = { computeFinishedSemaphores[imageIndex] };
+	submitInfo.waitSemaphoreCount = 0;
+	submitInfo.pWaitSemaphores = nullptr;
+	submitInfo.pWaitDstStageMask = nullptr;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer[imageIndex];
+	submitInfo.signalSemaphoreCount = 1;
+	submitInfo.pSignalSemaphores = signalSemaphores;
+
+	if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, computeInFlightFences[imageIndex]) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to Submit Compute Command\n");
+	}
 
 }

@@ -1,0 +1,31 @@
+#version 450
+
+layout (local_size_x = 100, local_size_y = 1, local_size_z = 1) in;
+
+struct Particle {
+  vec4 position;
+};
+
+layout (binding = 0) uniform UBO {
+    float deltaTime;
+} ubo;
+
+
+layout(std140, binding = 1) readonly buffer ParticleIn {
+   Particle particlesIn[ ];
+};
+
+layout(std140, binding = 2) buffer ParticleOut {
+   Particle particlesOut[ ];
+};
+
+void main() {
+	uint gid = gl_GlobalInvocationID.x;  
+
+    Particle particleIn = particlesIn[gid];
+
+    particleIn.position.y = sin(ubo.deltaTime + particleIn.position.x);
+
+    particlesOut[gid] = particleIn;
+}
+
