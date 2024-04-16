@@ -73,6 +73,6 @@ layout(binding=0) uniform Transform {
 } transform;
 
 void main() {
-    gl_Position = transform.P * transform.V * transform.M * vec4(positions[gl_VertexIndex] + ((gl_InstanceIndex % 10) - 5) * vec3(0.05, 0.0, 0.0) + ((gl_InstanceIndex / 10) - 5) * vec3(0.0, 0.0, 0.05) + inOffset.xyz, 1.0);
+    gl_Position = transform.P * transform.V * transform.M * vec4(positions[gl_VertexIndex] + ((gl_InstanceIndex % 100) - 50) * vec3(1.0, 0.0, 0.0) + ((gl_InstanceIndex / 100) - 50) * vec3(0.0, 0.0, 2.0) + vec3(0.0, inOffset.y, 0.0), 1.0);
     fragColor = colors[2];
 }

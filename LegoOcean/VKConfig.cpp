@@ -887,7 +887,7 @@ void VulkanClass::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t im
 
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &transformDescriptorSet[currentFrame], 0, nullptr);
 
-	vkCmdDraw(commandBuffer, 36, 100, 0, 0);
+	vkCmdDraw(commandBuffer, 36, NUM_PARTICLES, 0, 0);
 
 	vkCmdEndRenderPass(commandBuffer);
 
@@ -1019,7 +1019,7 @@ void VulkanClass::createPosBuffer() {
 	posBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	posBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	posBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	posBufferCreateInfo.size = sizeof(Particle) * 100;
+	posBufferCreateInfo.size = sizeof(Particle) * NUM_PARTICLES;
 
 	posBuffer.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
 	posBufferMemory.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
@@ -1081,7 +1081,7 @@ void VulkanClass::createPosBuffer() {
 	stagingBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	stagingBufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 	stagingBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	stagingBufferCreateInfo.size = sizeof(Particle) * 100;
+	stagingBufferCreateInfo.size = sizeof(Particle) * NUM_PARTICLES;
 
 	vkCreateBuffer(logicalDevice, &stagingBufferCreateInfo, nullptr, &stagingBuffer);
 
@@ -1096,7 +1096,7 @@ void VulkanClass::createPosBuffer() {
 	vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &stagingBufferMemory);
 
 	std::vector<Particle> particles;
-	for (size_t i = 0; i < 100; i++) {
+	for (size_t i = 0; i < NUM_PARTICLES; i++) {
 		Particle part;
 		part.pos = glm::vec4((((int)i % 10) - 5) * 2.5f, 0.0f, (((int)i / 10) - 5) * 2.5f, 1.0f);
 		particles.push_back(part);
@@ -1107,8 +1107,8 @@ void VulkanClass::createPosBuffer() {
 	vkBindBufferMemory(logicalDevice, stagingBuffer, stagingBufferMemory, 0);
 
 	void* data;
-	vkMapMemory(logicalDevice, stagingBufferMemory, 0, sizeof(Particle)*100, 0, &data);
-	memcpy(data, particles.data(), (size_t)(sizeof(Particle)*100));
+	vkMapMemory(logicalDevice, stagingBufferMemory, 0, sizeof(Particle)*NUM_PARTICLES, 0, &data);
+	memcpy(data, particles.data(), (size_t)(sizeof(Particle)*NUM_PARTICLES));
 	vkUnmapMemory(logicalDevice, stagingBufferMemory);
 
 	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
@@ -1129,7 +1129,7 @@ void VulkanClass::createPosBuffer() {
 			vkBeginCommandBuffer(copyCommandBuffer, &copyBeginInfo);
 
 			VkBufferCopy copyRegion{};
-			copyRegion.size = sizeof(Particle) * 100;
+			copyRegion.size = sizeof(Particle) * NUM_PARTICLES;
 			copyRegion.srcOffset = 0;
 			copyRegion.dstOffset = 0;
 			vkCmdCopyBuffer(copyCommandBuffer, stagingBuffer, posBuffer[i][j], 1, &copyRegion);
@@ -1190,7 +1190,7 @@ void VulkanClass::createComputeDescriptorSet() {
 		VkDescriptorBufferInfo shaderStoragePrevFrame{};
 		shaderStoragePrevFrame.buffer = posBuffer[i][0];
 		shaderStoragePrevFrame.offset = 0;
-		shaderStoragePrevFrame.range = sizeof(Particle) * 100;
+		shaderStoragePrevFrame.range = sizeof(Particle) * NUM_PARTICLES;
 
 		descriptorWrites[1] = {};
 		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1204,7 +1204,7 @@ void VulkanClass::createComputeDescriptorSet() {
 		VkDescriptorBufferInfo shaderStorageNextFrame{};
 		shaderStorageNextFrame.buffer = posBuffer[i][1];
 		shaderStorageNextFrame.offset = 0;
-		shaderStorageNextFrame.range = sizeof(Particle) * 100;
+		shaderStorageNextFrame.range = sizeof(Particle) * NUM_PARTICLES;
 
 		descriptorWrites[2] = {};
 		descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1263,7 +1263,7 @@ void VulkanClass::recordComputeCommandBuffer(VkCommandBuffer commandBuffer, uint
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSets[imageIndex], 0, 0);
 
-	vkCmdDispatch(commandBuffer, 100, 1, 1);
+	vkCmdDispatch(commandBuffer, NUM_PARTICLES/256 + 1, 1, 1);
 
 	if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
 		throw std::runtime_error("Failed to Record Compute Command Buffer\n");

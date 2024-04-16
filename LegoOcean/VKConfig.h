@@ -116,6 +116,8 @@ private:
 
 public:
 
+	int NUM_PARTICLES = 10000;
+
 	bool framebufferResized = false;
 
 	std::vector<VkSemaphore> imageAvailableSemaphore;
