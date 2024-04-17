@@ -22,6 +22,7 @@ struct Transform {
 
 struct Particle {
 	glm::vec4 pos;
+	glm::vec4 vel;
 };
 
 struct ComputeUniforms {

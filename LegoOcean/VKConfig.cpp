@@ -713,12 +713,16 @@ void VulkanClass::createGraphicsPipeline() {
 	bindingDescription.stride = sizeof(Particle);
 	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-	std::vector<VkVertexInputAttributeDescription> attributeDescriptions(1);
+	std::vector<VkVertexInputAttributeDescription> attributeDescriptions(2);
 
 	attributeDescriptions[0].binding = 0;
 	attributeDescriptions[0].location = 0;
 	attributeDescriptions[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
 	attributeDescriptions[0].offset = offsetof(Particle, pos);
+	attributeDescriptions[1].binding = 0;
+	attributeDescriptions[1].location = 1;
+	attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	attributeDescriptions[1].offset = offsetof(Particle, vel);
 
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1098,7 +1102,8 @@ void VulkanClass::createPosBuffer() {
 	std::vector<Particle> particles;
 	for (size_t i = 0; i < NUM_PARTICLES; i++) {
 		Particle part;
-		part.pos = glm::vec4((((int)i % 10) - 5) * 2.5f, 0.0f, (((int)i / 10) - 5) * 2.5f, 1.0f);
+		part.pos = glm::vec4((((int)i % (NUM_PARTICLES/100)) - (NUM_PARTICLES / 100)/2) * 2.5f, -10.0f, (((int)i / (NUM_PARTICLES / 100)) - (NUM_PARTICLES / 100)/2) * 2.5f, 1.0f);
+		part.vel = glm::vec4(0.0f);
 		particles.push_back(part);
 	}
 

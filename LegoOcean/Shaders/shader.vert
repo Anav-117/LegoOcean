@@ -1,6 +1,7 @@
 #version 450
 
-layout(location = 0) in vec4 inOffset;
+layout(location = 0) in vec4 inPosition;
+layout(location = 1) in vec4 inVelocity;
 
 layout(location = 0) out vec3 fragColor;
 
@@ -73,6 +74,6 @@ layout(binding=0) uniform Transform {
 } transform;
 
 void main() {
-    gl_Position = transform.P * transform.V * transform.M * vec4(positions[gl_VertexIndex] + ((gl_InstanceIndex % 100) - 50) * vec3(1.0, 0.0, 0.0) + ((gl_InstanceIndex / 100) - 50) * vec3(0.0, 0.0, 2.0) + vec3(0.0, inOffset.y, 0.0), 1.0);
+    gl_Position = transform.P * transform.V * transform.M * vec4(positions[gl_VertexIndex] + inPosition.xyz, 1.0);
     fragColor = colors[2];
 }

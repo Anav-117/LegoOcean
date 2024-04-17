@@ -4,6 +4,7 @@ layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 struct Particle {
   vec4 position;
+  vec4 velocity;
 };
 
 layout (binding = 0) uniform UBO {
@@ -19,12 +20,23 @@ layout(std140, binding = 2) buffer ParticleOut {
    Particle particlesOut[ ];
 };
 
+const vec3 gravity = vec3(0.0, 9.8, 0.0);
+
 void main() {
 	uint gid = gl_GlobalInvocationID.x;  
 
     Particle particleIn = particlesIn[gid];
 
-    particleIn.position.y = sin(ubo.deltaTime + particleIn.position.x);
+    barrier();
+
+    particleIn.velocity.xyz += gravity * ubo.deltaTime;
+
+    particleIn.position += particleIn.velocity * ubo.deltaTime;//sin(ubo.deltaTime + particleIn.position.x);
+
+    if (particleIn.position.y > 100.0) {
+        //particleIn.position.y = 100.0;
+        particleIn.velocity.y = -1.0 * particleIn.velocity.y;
+    }
 
     particlesOut[gid] = particleIn;
 }
