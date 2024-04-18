@@ -98,10 +98,8 @@ VulkanClass::~VulkanClass() {
 	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
 		vkDestroyBuffer(logicalDevice, transformBuffer[i], nullptr);
 		vkFreeMemory(logicalDevice, transformBufferMemory[i], nullptr);
-		for (size_t j = 0; j < 2; j++) {
-			vkDestroyBuffer(logicalDevice, posBuffer[i][j], nullptr);
-			vkFreeMemory(logicalDevice, posBufferMemory[i][j], nullptr);
-		}
+		vkDestroyBuffer(logicalDevice, posBuffer[i], nullptr);
+		vkFreeMemory(logicalDevice, posBufferMemory[i], nullptr);
 		vkDestroyBuffer(logicalDevice, computeUniformBuffer[i], nullptr);
 		vkFreeMemory(logicalDevice, computeUniformBufferMemory[i], nullptr);
 	}
@@ -887,7 +885,7 @@ void VulkanClass::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t im
 
 	VkDeviceSize offsets[] = { 0 };
 
-	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &posBuffer[currentFrame][1], offsets);
+	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &posBuffer[currentFrame], offsets);
 
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &transformDescriptorSet[currentFrame], 0, nullptr);
 
@@ -1033,25 +1031,23 @@ void VulkanClass::createPosBuffer() {
 	computeUniformBufferMap.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
 
 	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
-		posBuffer[i].resize(2);
-		posBufferMemory[i].resize(2);
 		for (size_t j = 0; j < 2; j++) {
-			if (vkCreateBuffer(logicalDevice, &posBufferCreateInfo, nullptr, &posBuffer[i][j]) != VK_SUCCESS) {
+			if (vkCreateBuffer(logicalDevice, &posBufferCreateInfo, nullptr, &posBuffer[i]) != VK_SUCCESS) {
 				throw std::runtime_error("Failed to Create Pos Buffer\n");
 			}
 
 			VkMemoryRequirements memreq;
-			vkGetBufferMemoryRequirements(logicalDevice, posBuffer[i][j], &memreq);
+			vkGetBufferMemoryRequirements(logicalDevice, posBuffer[i], &memreq);
 
 			VkMemoryAllocateInfo allocInfo{};
 			allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 			allocInfo.allocationSize = memreq.size;
 			allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-			if (vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &posBufferMemory[i][j]) != VK_SUCCESS)
+			if (vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &posBufferMemory[i]) != VK_SUCCESS)
 				throw std::runtime_error("Failed to Allocate Transform Uniform Buffer Memory\n6");
 
-			vkBindBufferMemory(logicalDevice, posBuffer[i][j], posBufferMemory[i][j], 0);
+			vkBindBufferMemory(logicalDevice, posBuffer[i], posBufferMemory[i], 0);
 		}
 
 		VkBufferCreateInfo bufferInfo{};
@@ -1102,12 +1098,12 @@ void VulkanClass::createPosBuffer() {
 	std::vector<Particle> particles;
 	for (size_t i = 0; i < NUM_PARTICLES; i++) {
 		Particle part;
-		part.pos = glm::vec4((((int)i % (NUM_PARTICLES/100)) - (NUM_PARTICLES / 100)/2) * 2.5f, -10.0f, (((int)i / (NUM_PARTICLES / 100)) - (NUM_PARTICLES / 100)/2) * 2.5f, 1.0f);
+		part.pos = glm::vec4((((int)i % 100) - 50.0f) * 2.5f, (((int)i / 10000)) * 2.5f, -1.0* ((((int)i % 10000) / 100) - 50.0f) * 2.5f, 1.0f);
 		part.vel = glm::vec4(0.0f);
 		particles.push_back(part);
 	}
-
-	std::cout << "\n\n\n";
+	 
+	std::cout << "Pos Buffer Created\n";
 
 	vkBindBufferMemory(logicalDevice, stagingBuffer, stagingBufferMemory, 0);
 
@@ -1137,7 +1133,7 @@ void VulkanClass::createPosBuffer() {
 			copyRegion.size = sizeof(Particle) * NUM_PARTICLES;
 			copyRegion.srcOffset = 0;
 			copyRegion.dstOffset = 0;
-			vkCmdCopyBuffer(copyCommandBuffer, stagingBuffer, posBuffer[i][j], 1, &copyRegion);
+			vkCmdCopyBuffer(copyCommandBuffer, stagingBuffer, posBuffer[i], 1, &copyRegion);
 
 			vkEndCommandBuffer(copyCommandBuffer);
 
@@ -1193,7 +1189,7 @@ void VulkanClass::createComputeDescriptorSet() {
 		descriptorWrites[0].pBufferInfo = &uniformBufferInfo;
 
 		VkDescriptorBufferInfo shaderStoragePrevFrame{};
-		shaderStoragePrevFrame.buffer = posBuffer[i][0];
+		shaderStoragePrevFrame.buffer = posBuffer[(i-1) % swapChain.MAX_FRAMES_IN_FLIGHT];
 		shaderStoragePrevFrame.offset = 0;
 		shaderStoragePrevFrame.range = sizeof(Particle) * NUM_PARTICLES;
 
@@ -1207,7 +1203,7 @@ void VulkanClass::createComputeDescriptorSet() {
 		descriptorWrites[1].pBufferInfo = &shaderStoragePrevFrame;
 
 		VkDescriptorBufferInfo shaderStorageNextFrame{};
-		shaderStorageNextFrame.buffer = posBuffer[i][1];
+		shaderStorageNextFrame.buffer = posBuffer[i];
 		shaderStorageNextFrame.offset = 0;
 		shaderStorageNextFrame.range = sizeof(Particle) * NUM_PARTICLES;
 

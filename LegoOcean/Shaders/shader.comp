@@ -20,7 +20,7 @@ layout(std140, binding = 2) buffer ParticleOut {
    Particle particlesOut[ ];
 };
 
-const vec3 gravity = vec3(0.0, 9.8, 0.0);
+const vec3 gravity = vec3(0.0, 1.0, 0.0);
 
 void main() {
 	uint gid = gl_GlobalInvocationID.x;  
@@ -31,10 +31,10 @@ void main() {
 
     particleIn.velocity.xyz += gravity * ubo.deltaTime;
 
-    particleIn.position += particleIn.velocity * ubo.deltaTime;//sin(ubo.deltaTime + particleIn.position.x);
+    particleIn.position += particleIn.velocity * ubo.deltaTime;
 
     if (particleIn.position.y > 100.0) {
-        //particleIn.position.y = 100.0;
+        particleIn.position.y = 100.0;
         particleIn.velocity.y = -1.0 * particleIn.velocity.y;
     }
 

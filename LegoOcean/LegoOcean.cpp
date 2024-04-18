@@ -9,7 +9,7 @@ namespace win {
 }
 
 namespace camera {
-	glm::vec3 pos = glm::vec3(0.0f, -5.0f, -10.0f);
+	glm::vec3 pos = glm::vec3(0.0f, -5.0f, -300.0f);
 	glm::vec3 fwd = glm::vec3(0.0f, 0.0f, 1.0f);
 }
 
@@ -71,12 +71,12 @@ void idle() {
 
 	transform.M = glm::scale(glm::mat4(1.0f), glm::vec3(0.5f)) * glm::mat4(1.0f);
 	transform.V = glm::lookAt(camera::pos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-	transform.P = glm::perspective(glm::radians(45.0f), win::width / (float)win::height, 0.1f, 100.0f);
+	transform.P = glm::perspective(glm::radians(45.0f), win::width / (float)win::height, 0.1f, 1000.0f);
 	vk->transform = transform;
 
 	vk->updateTransform();
 	
-	computeUniform.deltaTime = glfwGetTime();
+	computeUniform.deltaTime = glfwGetTime() / 1000.0;
 	vk->computeUniform = computeUniform;
 
 	vk->updateCompute();

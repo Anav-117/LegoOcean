@@ -96,8 +96,8 @@ private:
 	std::vector<VkDeviceMemory> transformBufferMemory;
 	std::vector<void*> transformBufferMap;
 
-	std::vector<std::vector<VkBuffer>> posBuffer;
-	std::vector<std::vector<VkDeviceMemory>> posBufferMemory;
+	std::vector<VkBuffer> posBuffer;
+	std::vector<VkDeviceMemory> posBufferMemory;
 
 	std::vector<VkBuffer> computeUniformBuffer;
 	std::vector<VkDeviceMemory> computeUniformBufferMemory;
@@ -117,7 +117,7 @@ private:
 
 public:
 
-	int NUM_PARTICLES = 10000;
+	int NUM_PARTICLES = 1000000;
 
 	bool framebufferResized = false;
 
