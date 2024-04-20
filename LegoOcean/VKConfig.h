@@ -23,6 +23,7 @@ struct Transform {
 struct Particle {
 	glm::vec4 pos;
 	glm::vec4 vel;
+	glm::vec4 accel;
 };
 
 struct ComputeUniforms {
@@ -117,7 +118,7 @@ private:
 
 public:
 
-	int NUM_PARTICLES = 1000000;
+	int NUM_PARTICLES = 1000;
 
 	bool framebufferResized = false;
 

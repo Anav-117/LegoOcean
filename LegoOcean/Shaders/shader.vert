@@ -2,8 +2,10 @@
 
 layout(location = 0) in vec4 inPosition;
 layout(location = 1) in vec4 inVelocity;
+layout(location = 2) in vec4 inAccel;
 
 layout(location = 0) out vec3 fragColor;
+layout(location = 1) out vec3 worldPos;
 
 vec3 positions[36] = vec3[](
     //Front
@@ -75,5 +77,6 @@ layout(binding=0) uniform Transform {
 
 void main() {
     gl_Position = transform.P * transform.V * transform.M * vec4(positions[gl_VertexIndex] + inPosition.xyz, 1.0);
+    worldPos = (transform.M * vec4(positions[gl_VertexIndex] + inPosition.xyz, 1.0)).xyz;
     fragColor = colors[2];
 }

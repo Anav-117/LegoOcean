@@ -4,7 +4,8 @@ layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 struct Particle {
   vec4 position;
-  vec4 velocity;
+  vec4 velocity;    //.xyz = vel,   .w = pressure (p)
+  vec4 accel;       //.xyz = force, .w = density (rho)
 };
 
 layout (binding = 0) uniform UBO {
@@ -20,24 +21,249 @@ layout(std140, binding = 2) buffer ParticleOut {
    Particle particlesOut[ ];
 };
 
-const vec3 gravity = vec3(0.0, 1.0, 0.0);
+float get_rho(Particle p)
+{
+    return p.accel.w;
+}
+
+void set_rho(inout Particle p, float rho)
+{
+    p.accel.w = rho;
+}
+
+float get_pressure(Particle p)
+{
+    return p.velocity.w;
+}
+
+void set_pressure(inout Particle p, float press)
+{
+    p.velocity.w = press;
+}
+
+const vec3 G = vec3(0.0, 9.8, 0.0);
+
+const float M_PI = 3.14159265;
+
+const float PARTICLE_RADIUS = 0.05;
+const float PARTICLE_DIAM = 2.0*PARTICLE_RADIUS;
+const float H = 4.0*PARTICLE_RADIUS;//SUPPORT_RADIUS
+const float HSQ = H * H;
+const float REST_DENS = 1000.0;
+const float VISC = 0.05;
+const float MASS = 0.5*PARTICLE_DIAM*PARTICLE_DIAM*REST_DENS;
+const float DT = 0.003;
+const float GAS_CONST = 35000.0;
+
+const float k2 = 40.0/(7.0*M_PI*HSQ); //for 2D
+const float kdim = k2; 
+const float PSI = 18.0*REST_DENS;//
+
+const float bound_scale = 5.0;
+const int bound_layers = 1;
+int n_boundary = int(bound_layers*bound_scale*8.0/PARTICLE_DIAM); // = 80
+
+//Cubic kernel function
+float W_cubic(float r)
+{
+    float q = r/H;
+    if(q>=1.0) return 0.0;
+    if(q<=0.5)
+    {
+        return kdim*(6.0*q*q*(q-1.0)+1.0);
+    }
+    else
+    {
+        float q1 = 1.0-q;
+        return kdim*2.0*q1*q1*q1;
+    }
+}
+
+//Gradient of cubic kernel function
+float W_cubic_grad(float r)
+{
+    
+    float q = r/H;
+    if(q>=1.0) return 0.0;
+    if(q<=0.5)
+    {
+        return 6.0*kdim*q*(3.0*q-2.0)/H;
+    }
+    else
+    {
+        float q1 = 1.0-q;
+        return -6.0*kdim*(q1*q1)/H;
+    }
+}
+
+//Laplacian of cubic kernel function
+float W_cubic_lap(float r)
+{
+    float q = r/H;
+    if(q>=1.0) return 0.0;
+    if(q<=0.5)
+    {
+        return kdim*6.0*(6.0*q-2.0)/HSQ;
+    }
+    else
+    {
+        return kdim*12.0*(1.0-q)/HSQ;
+    }
+}
+
+float CompressibleStateEqn(float rho)
+{
+    return GAS_CONST * (rho/REST_DENS - 1.0);
+}
+
+float WeaklyCompressibleStateEqn(float rho)
+{
+    float gamma = 3.0;
+    return GAS_CONST * (pow(rho/REST_DENS, gamma) - 1.0);
+}
+
+void ComputeDensityPressure(inout Particle particleIn, int ix);
+void ComputeForces(inout Particle particleIn, int ix);
+void anim_boundary(inout Particle particleIn, int gid);
 
 void main() {
-	uint gid = gl_GlobalInvocationID.x;  
+	int gid = int(gl_GlobalInvocationID.x);  
 
     Particle particleIn = particlesIn[gid];
 
     barrier();
 
-    particleIn.velocity.xyz += gravity * ubo.deltaTime;
+    //particleIn.velocity.xyz += G * ubo.deltaTime;
 
-    particleIn.position += particleIn.velocity * ubo.deltaTime;
+    //particleIn.position += particleIn.velocity * ubo.deltaTime;
+    
+    ComputeDensityPressure(particleIn, gid);
+    ComputeForces(particleIn, gid);
+    anim_boundary(particleIn, gid);
+
+    particlesOut[gid] = particleIn;
+
+}
+
+void anim_boundary(inout Particle particleIn, int gid) //n_boundary = 80
+{
+    //Particle particleIn = particlesIn[gid];
 
     if (particleIn.position.y > 100.0) {
         particleIn.position.y = 100.0;
-        particleIn.velocity.y = -1.0 * particleIn.velocity.y;
+        particleIn.velocity.y = -0.75 * particleIn.velocity.y;
+    }
+    if (particleIn.position.y < -100.0) {
+        particleIn.position.y = -100.0;
+        particleIn.velocity.y = -0.75 * particleIn.velocity.y;
+    }
+    if (particleIn.position.x < -100.0) {
+        particleIn.position.x = -100.0;
+        particleIn.velocity.x = -0.75 * particleIn.velocity.x;
+    }
+    if (particleIn.position.x > 100.0) {
+        particleIn.position.x = 100.0;
+        particleIn.velocity.x = -0.75 * particleIn.velocity.x;
+    }
+    if (particleIn.position.z < -100.0) {
+        particleIn.position.z = -100.0;
+        particleIn.velocity.z = -0.75 * particleIn.velocity.z;
+    }
+    if (particleIn.position.z > 100.0) {
+        particleIn.position.z = 100.0;
+        particleIn.velocity.z = -0.75 * particleIn.velocity.z;
     }
 
-    particlesOut[gid] = particleIn;
+
+    //particlesOut[gid] = particleIn;
 }
 
+void ComputeDensityPressure(inout Particle pi, int ix)
+{
+
+	Particle p = particlesIn[ix];
+    
+	float rho = 0.0;
+    const float c_rho = MASS;
+    
+    for(int i=0; i<particlesIn.length(); i++)
+    {
+	    if (i==ix)
+            continue;
+
+        Particle pi = particlesIn[i];
+        vec2 ri = p.position.xy - pi.position.xy;
+        
+        float r2 = dot(ri,ri);
+        if (r2 < HSQ)
+        {
+            rho += W_cubic(sqrt(r2));
+        }
+    }
+    
+    rho *= c_rho;
+    rho = max(REST_DENS, rho); // clamp density
+    set_rho(p, rho);
+
+    //float press_i = CompressibleStateEqn(rho);
+    float press_i = WeaklyCompressibleStateEqn(rho);
+    set_pressure(p, press_i);
+
+	//particlesOut[ix] = p;
+}
+
+
+void ComputeForces(inout Particle pi, int ix)
+{
+
+	//Particle pi = particlesIn[ix];
+    float rho_i = get_rho(pi);
+    vec2 acc_press = vec2(0.0);
+    vec2 acc_visc = vec2(0.0);
+    vec2 acc_grav = G.xy;
+    float c_visc = -VISC*8.0*MASS;
+    //float c_visc = VISC*MASS;
+    float c_press = MASS;
+    const float eps = 1e-6;
+
+    float acc_press_i = get_pressure(pi)/(rho_i*rho_i);
+
+    for(int i=0; i<particlesIn.length(); i++)
+    {
+        Particle pj = particlesIn[i];
+			  
+		if(i != ix) //don't process self (ix)
+		{
+            vec2 rij = pi.position.xy - pj.position.xy;
+            float r = length(rij);
+
+            if (r < H)
+            {
+                float Wgrad = W_cubic_grad(r);
+                vec2 uij = rij/(r+eps);
+                float rho_j = get_rho(pj);
+                // compute pressure force contribution
+                acc_press -= (acc_press_i + get_pressure(pj)/(rho_j*rho_j)) * Wgrad*uij;
+                // compute viscosity force contribution
+                vec2 vij = pi.velocity.xy - pj.velocity.xy;
+                acc_visc -= 1.0/rho_j * dot(vij, rij)/(r*r + 0.01*HSQ) * Wgrad*uij;
+                //float Wij = W_cubic(r);
+                //acc_visc += 1.0/(rho_j*DT)*Wij*vij;
+            }   
+		}
+    }
+
+    acc_visc *= c_visc;
+    acc_press *= c_press;
+
+    //INTEGRATE
+    //semi-implicit Euler integration
+    pi.accel.xy = acc_press + acc_visc + acc_grav;
+    pi.velocity.xy += DT * pi.accel.xy;
+    pi.position.xy += DT * pi.velocity.xy;
+
+//    pi.velocity.xyz += G * ubo.deltaTime;
+//   pi.position += pi.velocity * ubo.deltaTime;
+
+    //particlesOut[ix] = pi;
+}
