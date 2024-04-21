@@ -1099,12 +1099,19 @@ void VulkanClass::createPosBuffer() {
 
 	vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &stagingBufferMemory);
 
+	const float REST_DENS = 1000.0;
+	const float GAS_CONST = 35000.0;
+	const float PSI = 18.0 * REST_DENS;
+
+	float gamma = 3.0;
+	float pressure = GAS_CONST * (pow(PSI / REST_DENS, gamma) - 1.0);
+
 	std::vector<Particle> particles;
 	for (size_t i = 0; i < NUM_PARTICLES; i++) {
 		Particle part;
-		part.pos = glm::vec4((((int)i % 10) - 5.0f) * 0.5f, (((int)i / 100)) * 0.5f, -1.0* ((((int)i % 100) / 10) - 5.0f) * 0.5f, 1.0f);
-		part.vel = glm::vec4(0.0f);
-		part.accel = glm::vec4(0.0f, 0.0f, 0.0f, 1000.0f);
+		part.pos = glm::vec4((((int)i % 10) - 5.0f) * 2.5f, (((int)i / 100)) * 2.5f, -1.0* ((((int)i % 100) / 10) - 5.0f) * 2.5f, 1.0f);
+		part.vel = glm::vec4(0.0f, 0.0f, 0.0f, pressure);
+		part.accel = glm::vec4(0.0f, 0.0f, 0.0f, PSI);
 		particles.push_back(part);
 	}
 	 

@@ -9,7 +9,7 @@ namespace win {
 }
 
 namespace camera {
-	glm::vec3 pos = glm::vec3(0.0f, -5.0f, -300.0f);
+	glm::vec3 pos = glm::vec3(0.0f, -5.0f, -1000.0f);
 	glm::vec3 fwd = glm::vec3(0.0f, 0.0f, 1.0f);
 	float angle = 0;
 	float Xangle = 0;
@@ -89,7 +89,7 @@ void display() {
 
 void idle() {
 
-	transform.M = glm::scale(glm::mat4(1.0f), glm::vec3(0.5f)) * glm::mat4(1.0f);
+	transform.M = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f)) * glm::mat4(1.0f);
 	transform.V = glm::lookAt(camera::pos, camera::pos + camera::fwd, glm::vec3(0.0f, 1.0f, 0.0f));
 	transform.P = glm::perspective(glm::radians(45.0f), win::width / (float)win::height, 0.1f, 1000.0f);
 	vk->transform = transform;

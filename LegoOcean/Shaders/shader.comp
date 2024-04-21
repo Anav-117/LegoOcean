@@ -151,27 +151,27 @@ void anim_boundary(inout Particle particleIn, int gid) //n_boundary = 80
 
     if (particleIn.position.y > 100.0) {
         particleIn.position.y = 100.0;
-        particleIn.velocity.y = -0.75 * particleIn.velocity.y;
+        particleIn.velocity.y = -0.000000075 * particleIn.velocity.y;
     }
     if (particleIn.position.y < -100.0) {
         particleIn.position.y = -100.0;
-        particleIn.velocity.y = -0.75 * particleIn.velocity.y;
+        particleIn.velocity.y = -0.000000075 * particleIn.velocity.y;
     }
     if (particleIn.position.x < -100.0) {
         particleIn.position.x = -100.0;
-        particleIn.velocity.x = -0.75 * particleIn.velocity.x;
+        particleIn.velocity.x = -0.000000075 * particleIn.velocity.x;
     }
     if (particleIn.position.x > 100.0) {
         particleIn.position.x = 100.0;
-        particleIn.velocity.x = -0.75 * particleIn.velocity.x;
+        particleIn.velocity.x = -0.000000075 * particleIn.velocity.x;
     }
     if (particleIn.position.z < -100.0) {
         particleIn.position.z = -100.0;
-        particleIn.velocity.z = -0.75 * particleIn.velocity.z;
+        particleIn.velocity.z = -0.000000075 * particleIn.velocity.z;
     }
     if (particleIn.position.z > 100.0) {
         particleIn.position.z = 100.0;
-        particleIn.velocity.z = -0.75 * particleIn.velocity.z;
+        particleIn.velocity.z = -0.000000075 * particleIn.velocity.z;
     }
 
 
