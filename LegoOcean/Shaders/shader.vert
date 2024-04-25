@@ -1,8 +1,7 @@
 #version 450
 
-layout(location = 0) in float inData;
-//layout(location = 1) in vec3 inPosition;
-//layout(location = 2) in vec3 inNorm;
+layout(location = 1) in vec4 inPosition;
+layout(location = 2) in vec4 inNorm;
 
 layout(location = 0) out vec3 fragColor;
 layout(location = 1) out vec3 worldPos;
@@ -74,17 +73,29 @@ layout(binding=0) uniform Transform {
     mat4 M;
     mat4 V;
     mat4 P;
+    int wave;
 } transform;
 
 void main() {
     gl_PointSize = 10.0f;
     vec3 offset;
-    offset.x = (int(inData) % 10) - 5;
-    offset.y = (int(inData) / 100) - 5;
-    offset.z = (int(inData) / 10) % 10 - 5;
-    gl_Position = transform.P * transform.V * transform.M * vec4(positions[gl_VertexIndex] + offset, 1.0);
-    //gl_Position = transform.P * transform.V * transform.M * vec4(inPosition, 1.0);
-    //worldPos = (transform.M * vec4(inPosition, 1.0)).xyz;
-    //normal = inNorm;
-    fragColor = colors[2];
+    offset.x = (int(inPosition.w) % 10) - 5;
+    offset.y = (int(inPosition.w) / 100) - 5;
+    offset.z = (int(inPosition.w) / 10) % 10 - 5;
+    //gl_Position = transform.P * transform.V * transform.M * vec4(positions[gl_VertexIndex] + offset, 1.0);
+    gl_Position = transform.P * transform.V * transform.M * vec4(inPosition.xyz, 1.0);
+    worldPos = (transform.M * vec4(inPosition.xyz, 1.0)).xyz;
+    normal = inNorm.xyz;
+
+    if (transform.wave > 0) {
+        if (worldPos.y > 45) {
+            fragColor = colors[2];//vec3(1.0); 
+        }
+        else {
+            fragColor = vec3(1.0);//colors[2];
+        }
+    }
+    else {
+        fragColor = colors[2];
+    }
 }

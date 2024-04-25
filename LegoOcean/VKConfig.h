@@ -18,17 +18,18 @@ struct Transform {
 	glm::mat4 M;
 	glm::mat4 V;
 	glm::mat4 P;
+	int wave;
 };
 
 struct Particle {
-	float data;
-	//glm::vec3 pos;
-	//glm::vec3 normal;
+	glm::vec4 pos;
+	glm::vec4 normal;
 };
 
 struct ComputeUniforms {
 	float deltaTime;
 	int first = 1;
+	int fieldMode = 0;
 };
 
 struct QueueFamily {
@@ -118,9 +119,15 @@ public: //private:
 	VkCommandPool commandPool;
 	std::vector<VkCommandBuffer> commandBuffer;
 
+	VkImage depthImage;
+	VkDeviceMemory depthImageMemory;
+	VkImageView depthImageView;
+
 public:
 
-	int NUM_PARTICLES = 1000;
+	int gridSize = 20;
+	int gridSize2 = gridSize * gridSize;
+	int NUM_PARTICLES = gridSize*gridSize2;
 
 	bool framebufferResized = false;
 
@@ -147,6 +154,16 @@ public:
 	void dispatch(uint32_t imageIndex);
 	int getMaxFramesInFlight() { return swapChain.MAX_FRAMES_IN_FLIGHT; }
 	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+	void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
+	VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
+	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+	VkCommandBuffer beginSingleTimeCommands();
+	void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+	bool hasStencilComponent(VkFormat format);
+	VkImageView createImageView(VkImage image, VkFormat format);
+	VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+	void createDepthResources();
 
 	//void initVulkan();
 	void createInstance();

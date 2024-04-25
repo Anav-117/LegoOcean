@@ -175,6 +175,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Shaders.h" />
+    <ClInclude Include="TraingleTable.h" />
     <ClInclude Include="VKConfig.h" />
   </ItemGroup>
   <ItemGroup>

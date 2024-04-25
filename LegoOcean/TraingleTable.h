@@ -1,29 +1,9 @@
-#version 450
+#pragma once
 
-layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
-struct Vertex {
-	vec4 pos; // w contains data for validation
-	vec4 normal;
-};
-
-const uint chunk_size = 20;
-const uint chunk_size2 = chunk_size*chunk_size;
-
-layout (binding = 0) uniform UBO {
-    float deltaTime;
-	int firstTime;
-	int fieldMode;
-} ubo;
-
-
-layout(std430, binding = 1) readonly buffer Field {
-   float data[ ];
-};
-
-layout(std430, binding = 2) buffer Vertices {
-   Vertex vertices[ ];
-};
+#include "VKConfig.h"
+#include "glm/glm.hpp"
+#include <iostream>
+#include "glm/gtc/matrix_transform.hpp"
 
 const int tConnectionTable[256][15] = {
 	{-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1},
@@ -284,125 +264,113 @@ const int tConnectionTable[256][15] = {
 	{-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1}
 };
 
+const unsigned int chunk_size = 20;
+const unsigned int chunk_size2 = chunk_size * chunk_size;
+
 float voxel_size = 10.0;
 float threshold = 0.0;
 
-vec3 createVert( vec3 p0, vec3 p1, float d0, float d1 )
+glm::vec3 createVert(glm::vec3 p0, glm::vec3 p1, float d0, float d1)
 {
-	float diff = d1-d0;
-	if( abs(diff) > 1e-9 )
-		return (p1-p0)*(threshold-d0)/diff + p0;
+	float diff = d1 - d0;
+	if (abs(diff) > 1e-9)
+		return (p1 - p0) * (threshold - d0) / diff + p0;
 	else
-		return (p0 + p1)*0.5;
+		return (p0 + p1) * 0.5f;
 }
 
-uint contIndex( uint x, uint y, uint z )
+unsigned int contIndex(unsigned int x, unsigned int y, unsigned int z)
 {
-	return chunk_size2*z + chunk_size*y + x;
+	return chunk_size2 * z + chunk_size * y + x;
 }
 
-void createVerts( vec3 voxel_index, inout vec3 pos[12], float vox_data[8] )
+void createVerts(glm::vec3 voxel_index, glm::vec3 pos[12], float vox_data[8])
 {
 	// All corner points of the current cube
-	float x = voxel_index.x*voxel_size;
-	float y = voxel_index.y*voxel_size;
-	float z = voxel_index.z*voxel_size;
-	vec3 c0 = vec3( x, y, z);
-	vec3 c1 = vec3( x+voxel_size, y, z);
-	vec3 c2 = vec3( x+voxel_size, y+voxel_size, z);
-	vec3 c3 = vec3( x, y+voxel_size, z);
-	vec3 c4 = vec3( x, y, z+voxel_size );
-	vec3 c5 = vec3( x+voxel_size, y, z+voxel_size );
-	vec3 c6 = vec3( x+voxel_size, y+voxel_size, z+voxel_size );
-	vec3 c7 = vec3( x, y+voxel_size, z+voxel_size );
+	float x = voxel_index.x * voxel_size;
+	float y = voxel_index.y * voxel_size;
+	float z = voxel_index.z * voxel_size;
+	glm::vec3 c0 = glm::vec3(x, y, z);
+	glm::vec3 c1 = glm::vec3(x + voxel_size, y, z);
+	glm::vec3 c2 = glm::vec3(x + voxel_size, y + voxel_size, z);
+	glm::vec3 c3 = glm::vec3(x, y + voxel_size, z);
+	glm::vec3 c4 = glm::vec3(x, y, z + voxel_size);
+	glm::vec3 c5 = glm::vec3(x + voxel_size, y, z + voxel_size);
+	glm::vec3 c6 = glm::vec3(x + voxel_size, y + voxel_size, z + voxel_size);
+	glm::vec3 c7 = glm::vec3(x, y + voxel_size, z + voxel_size);
 
 	// Find the 12 edge vertices by interpolating between the corner points,
 	// depending on the values of the field at those corner points:
-	pos[0] = createVert( c0, c1, vox_data[0], vox_data[1] );
-	pos[1] = createVert( c1, c2, vox_data[1], vox_data[2] );
-	pos[2] = createVert( c2, c3, vox_data[2], vox_data[3] );
-	pos[3] = createVert( c3, c0, vox_data[3], vox_data[0] );
+	pos[0] = createVert(c0, c1, vox_data[0], vox_data[1]);
+	pos[1] = createVert(c1, c2, vox_data[1], vox_data[2]);
+	pos[2] = createVert(c2, c3, vox_data[2], vox_data[3]);
+	pos[3] = createVert(c3, c0, vox_data[3], vox_data[0]);
 
-	pos[4] = createVert( c4, c5, vox_data[4], vox_data[5] );
-	pos[5] = createVert( c5, c6, vox_data[5], vox_data[6] );
-	pos[6] = createVert( c6, c7, vox_data[6], vox_data[7] );
-	pos[7] = createVert( c7, c4, vox_data[7], vox_data[4] );
-	
-	pos[8] = createVert( c0, c4, vox_data[0], vox_data[4] );
-	pos[9] = createVert( c1, c5, vox_data[1], vox_data[5] );
-	pos[10] = createVert( c2, c6, vox_data[2], vox_data[6] );
-	pos[11] = createVert( c3, c7, vox_data[3], vox_data[7] );
+	pos[4] = createVert(c4, c5, vox_data[4], vox_data[5]);
+	pos[5] = createVert(c5, c6, vox_data[5], vox_data[6]);
+	pos[6] = createVert(c6, c7, vox_data[6], vox_data[7]);
+	pos[7] = createVert(c7, c4, vox_data[7], vox_data[4]);
+
+	pos[8] = createVert(c0, c4, vox_data[0], vox_data[4]);
+	pos[9] = createVert(c1, c5, vox_data[1], vox_data[5]);
+	pos[10] = createVert(c2, c6, vox_data[2], vox_data[6]);
+	pos[11] = createVert(c3, c7, vox_data[3], vox_data[7]);
 }
 
 
-void main() {
+Particle march(int gid, int index, float data[]) {
 
-	if (ubo.fieldMode == 5) { // CPU MODE
-		return;
+	//vertices[contIndex( index.x, index.y, index.z )].pos.w = data[contIndex( index.x, index.y, index.z )];
+
+	// Retrieve all necessary data from neighboring cells:
+	float vox_data[8];
+	vox_data[0] = data[gid];
+	vox_data[1] = data[gid + 1];
+	vox_data[2] = data[gid + chunk_size + 1];
+	vox_data[3] = data[gid + chunk_size];
+
+	vox_data[4] = data[gid + chunk_size2];
+	vox_data[5] = data[gid + chunk_size2 + 1];
+	vox_data[6] = data[gid + chunk_size2 + chunk_size + 1];
+	vox_data[7] = data[gid + chunk_size2 + chunk_size];
+
+	// Turn this information into a triangle list index:
+	int triangleTypeIndex = 0;
+	int DataSum = 0;
+	for (int i = 0; i < 8; i++)
+		if (vox_data[i] > threshold) {
+			triangleTypeIndex |= 1 << i;
+			DataSum++;
+		}
+	// Set up all neighboring vertices:
+	glm::vec3 verts[12];
+	for (int i = 0; i < 12; i++)
+		verts[i] = glm::vec3(0, 0, 0);
+	createVerts(glm::vec3((gid % chunk_size), (gid / chunk_size) % chunk_size, gid / chunk_size2), verts, vox_data);
+
+	tConnectionTable[triangleTypeIndex];
+	glm::vec3 curNormal = glm::vec3(0, 0, 1);
+	if (index % 3 == 0)
+	{
+		glm::vec3 p1 = verts[tConnectionTable[triangleTypeIndex][index]];
+		glm::vec3 p2 = verts[tConnectionTable[triangleTypeIndex][index + 1]];
+		glm::vec3 p3 = verts[tConnectionTable[triangleTypeIndex][index + 2]];
+		curNormal = normalize(cross((p1 - p2), (p1 - p3)));
 	}
 
-  //for (int i=0; i<15; i++) {
-  uint gid = gl_GlobalInvocationID.x;
-  vertices[gid].pos.w = data[gid];
-	
-	// Make sure this is not a border cell (otherwise neighbor lookup in the next step would fail):
-  if( gid%chunk_size >= chunk_size-1 ||
-		  (gid/chunk_size)%chunk_size >= chunk_size-1 ||
-		  gid/chunk_size2 >= chunk_size-1 )
-		  return;
+	unsigned int targetVertIndex = gid * 15 + index;
 
-  //vertices[contIndex( index.x, index.y, index.z )].pos.w = data[contIndex( index.x, index.y, index.z )];
+	Particle vertex;
 
-  // Retrieve all necessary data from neighboring cells:
-  float vox_data[8];
-  vox_data[0] = data[ gid ];
-  vox_data[1] = data[ gid+1 ];
-  vox_data[2] = data[ gid+chunk_size+1 ];
-  vox_data[3] = data[ gid+chunk_size ];
-
-  vox_data[4] = data[ gid+chunk_size2 ];
-  vox_data[5] = data[ gid+chunk_size2+1 ];
-  vox_data[6] = data[ gid+chunk_size2+chunk_size+1 ];
-  vox_data[7] = data[ gid+chunk_size2+chunk_size ];
-
-  // Turn this information into a triangle list index:
-  int triangleTypeIndex = 0;
-  int DataSum = 0;
-  for( int i = 0; i < 8; i++ )
-  	if( vox_data[i] > threshold ) {
-		triangleTypeIndex |= 1 << i;
-		DataSum++;
+	if (tConnectionTable[triangleTypeIndex][index] > -1)
+	{
+		vertex.pos = glm::vec4(verts[tConnectionTable[triangleTypeIndex][index]], 1.0);
+		vertex.normal = glm::vec4(curNormal, 1.0);
 	}
-  // Set up all neighboring vertices:
-  vec3 verts[12];
-  for( int i = 0; i < 12; i++ )
-  	verts[i] = vec3(0,0,0);
-  createVerts( vec3((gid%chunk_size), (gid/chunk_size)%chunk_size, gid/chunk_size2), verts, vox_data );
+	else {
+		vertex.pos = glm::vec4(0, 0, 0, 0);
+		vertex.normal = glm::vec4(0, 1, 0, 0);
+	}
 
-  int tri_vert_indices[15] = tConnectionTable[triangleTypeIndex];
-  vec3 curNormal = vec3(0,0,1);
-  for( int i = 0; i < 15; i++ )
-  {
-  	  if( i % 3 == 0 )
-	  {
-	  	  vec3 p1 = verts[tri_vert_indices[i]];
-	  	  vec3 p2 = verts[tri_vert_indices[i+1]];
-	  	  vec3 p3 = verts[tri_vert_indices[i+2]];
-		  curNormal = normalize( cross( (p1-p2), (p1-p3) ) );
-	  }
-  	  
-	  uint targetVertIndex = gid*15 + i;
-
-	  vertices[targetVertIndex].normal.w = DataSum;
-
-	  if( tri_vert_indices[i] > -1 )
-	  {
-	  	  vertices[targetVertIndex].pos.xyz = verts[tri_vert_indices[i]];
-	  	  vertices[targetVertIndex].normal.xyz = curNormal;
-	  } else {
-	  	  vertices[targetVertIndex].pos.xyz = vec3(0,0,0);
-	  	  vertices[targetVertIndex].normal.xyz = vec3(0,1,0);
-	  }
-  }
-
+	return vertex;
 }
