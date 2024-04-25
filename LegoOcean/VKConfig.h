@@ -21,13 +21,14 @@ struct Transform {
 };
 
 struct Particle {
-	glm::vec4 pos;
-	glm::vec4 vel;
-	glm::vec4 accel;
+	float data;
+	//glm::vec3 pos;
+	//glm::vec3 normal;
 };
 
 struct ComputeUniforms {
 	float deltaTime;
+	int first = 1;
 };
 
 struct QueueFamily {
@@ -52,7 +53,7 @@ struct SwapChain {
 	VkSurfaceFormatKHR format;
 	VkPresentModeKHR presentMode;
 	VkExtent2D extent;
-	const int MAX_FRAMES_IN_FLIGHT = 2;;
+	const int MAX_FRAMES_IN_FLIGHT = 2;
 
 	std::vector<VkImage> images;
 	std::vector<VkImageView> imageViews;
@@ -66,7 +67,7 @@ struct SwapChain {
 
 class VulkanClass {
 
-private:
+public: //private:
 
 	bool enableValidationLayers = true;
 	std::vector<const char*> validationLayers = { "VK_LAYER_KHRONOS_validation" };
@@ -99,6 +100,7 @@ private:
 
 	std::vector<VkBuffer> posBuffer;
 	std::vector<VkDeviceMemory> posBufferMemory;
+	std::vector<void*> posBufferMap;
 
 	std::vector<VkBuffer> computeUniformBuffer;
 	std::vector<VkDeviceMemory> computeUniformBufferMemory;

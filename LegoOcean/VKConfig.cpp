@@ -78,7 +78,7 @@ VulkanClass::VulkanClass(GLFWwindow* win) {
 	createCommandPool();
 	createCommandBuffer();
 
-	createPosBuffer();
+	//createPosBuffer();
 
 	createSyncObjects();
 
@@ -310,6 +310,9 @@ void VulkanClass::createLogicalDevice() {
 
 	VkPhysicalDeviceFeatures requiredFeatures{};
 	requiredFeatures.geometryShader = VK_TRUE;
+	requiredFeatures.fillModeNonSolid = VK_TRUE;
+	requiredFeatures.wideLines = VK_TRUE;
+	requiredFeatures.largePoints = VK_TRUE;
 
 	VkDeviceCreateInfo logicalDeviceCreateInfo{};
 
@@ -711,20 +714,20 @@ void VulkanClass::createGraphicsPipeline() {
 	bindingDescription.stride = sizeof(Particle);
 	bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-	std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
+	std::vector<VkVertexInputAttributeDescription> attributeDescriptions(1);
 
 	attributeDescriptions[0].binding = 0;
 	attributeDescriptions[0].location = 0;
-	attributeDescriptions[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-	attributeDescriptions[0].offset = offsetof(Particle, pos);
-	attributeDescriptions[1].binding = 0;
-	attributeDescriptions[1].location = 1;
-	attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-	attributeDescriptions[1].offset = offsetof(Particle, vel);
-	attributeDescriptions[2].binding = 0;
-	attributeDescriptions[2].location = 2;
-	attributeDescriptions[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-	attributeDescriptions[2].offset = offsetof(Particle, accel);
+	attributeDescriptions[0].format = VK_FORMAT_R32_SFLOAT;
+	attributeDescriptions[0].offset = offsetof(Particle, data);
+	//attributeDescriptions[1].binding = 0;
+	//attributeDescriptions[1].location = 1;
+	//attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+	//attributeDescriptions[1].offset = offsetof(Particle, pos);
+	//attributeDescriptions[2].binding = 0;
+	//attributeDescriptions[2].location = 2;
+	//attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+	//attributeDescriptions[2].offset = offsetof(Particle, normal);
 
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -762,7 +765,7 @@ void VulkanClass::createGraphicsPipeline() {
 	rasterInfo.depthClampEnable = VK_FALSE;
 	rasterInfo.rasterizerDiscardEnable = VK_FALSE;
 	rasterInfo.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterInfo.lineWidth = 1.0f;
+	rasterInfo.lineWidth = 10.0f;
 	rasterInfo.cullMode = VK_CULL_MODE_NONE;
 	rasterInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterInfo.depthBiasEnable = VK_FALSE;
@@ -889,11 +892,12 @@ void VulkanClass::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t im
 
 	VkDeviceSize offsets[] = { 0 };
 
-	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &posBuffer[currentFrame], offsets);
+	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &posBuffer[1], offsets);
 
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &transformDescriptorSet[currentFrame], 0, nullptr);
 
-	vkCmdDraw(commandBuffer, 36, NUM_PARTICLES, 0, 0);
+	//vkCmdDraw(commandBuffer, NUM_PARTICLES * 15.0, 1, 0, 0);
+	vkCmdDraw(commandBuffer, 36, 15000, 0, 0);
 
 	vkCmdEndRenderPass(commandBuffer);
 
@@ -1015,8 +1019,13 @@ void VulkanClass::updateTransform() {
 
 	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
 		memcpy(transformBufferMap[i], &transform, sizeof(transform));
-;	}
+	}
 
+}
+
+float randomFloat()
+{
+	return (float)(rand()) / (float)(RAND_MAX);
 }
 
 void VulkanClass::createPosBuffer() {
@@ -1025,34 +1034,39 @@ void VulkanClass::createPosBuffer() {
 	posBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	posBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	posBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	posBufferCreateInfo.size = sizeof(Particle) * NUM_PARTICLES;
+	posBufferCreateInfo.size = sizeof(float) * NUM_PARTICLES;
 
 	posBuffer.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
 	posBufferMemory.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
+	posBufferMap.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
 
 	computeUniformBuffer.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
 	computeUniformBufferMemory.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
 	computeUniformBufferMap.resize(swapChain.MAX_FRAMES_IN_FLIGHT);
 
 	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
-		for (size_t j = 0; j < 2; j++) {
-			if (vkCreateBuffer(logicalDevice, &posBufferCreateInfo, nullptr, &posBuffer[i]) != VK_SUCCESS) {
-				throw std::runtime_error("Failed to Create Pos Buffer\n");
-			}
-
-			VkMemoryRequirements memreq;
-			vkGetBufferMemoryRequirements(logicalDevice, posBuffer[i], &memreq);
-
-			VkMemoryAllocateInfo allocInfo{};
-			allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-			allocInfo.allocationSize = memreq.size;
-			allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-			if (vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &posBufferMemory[i]) != VK_SUCCESS)
-				throw std::runtime_error("Failed to Allocate Transform Uniform Buffer Memory\n6");
-
-			vkBindBufferMemory(logicalDevice, posBuffer[i], posBufferMemory[i], 0);
+		if (i == 1) {
+			posBufferCreateInfo.size = sizeof(Particle) * NUM_PARTICLES;
 		}
+
+		if (vkCreateBuffer(logicalDevice, &posBufferCreateInfo, nullptr, &posBuffer[i]) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to Create Pos Buffer\n");
+		}
+
+		VkMemoryRequirements memreq;
+		vkGetBufferMemoryRequirements(logicalDevice, posBuffer[i], &memreq);
+
+		VkMemoryAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memreq.size;
+		allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+		if (vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &posBufferMemory[i]) != VK_SUCCESS)
+			throw std::runtime_error("Failed to Allocate Transform Uniform Buffer Memory\n6");
+
+		vkBindBufferMemory(logicalDevice, posBuffer[i], posBufferMemory[i], 0);
+
+		vkMapMemory(logicalDevice, posBufferMemory[i], 0, memreq.size, 0, &posBufferMap[i]);
 
 		VkBufferCreateInfo bufferInfo{};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1063,10 +1077,7 @@ void VulkanClass::createPosBuffer() {
 		if (vkCreateBuffer(logicalDevice, &bufferInfo, nullptr, &computeUniformBuffer[i]) != VK_SUCCESS)
 			throw std::runtime_error("Failed To create Transform Uniform Buffer\n");
 
-		VkMemoryRequirements memreq;
 		vkGetBufferMemoryRequirements(logicalDevice, computeUniformBuffer[i], &memreq);
-
-		VkMemoryAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 		allocInfo.allocationSize = memreq.size;
 		allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -1079,86 +1090,136 @@ void VulkanClass::createPosBuffer() {
 		vkMapMemory(logicalDevice, computeUniformBufferMemory[i], 0, sizeof(ComputeUniforms), 0, &computeUniformBufferMap[i]);
 	}
 
-	VkBuffer stagingBuffer;
-	VkDeviceMemory stagingBufferMemory;
+	VkBuffer stagingBuffer = nullptr;
+	VkDeviceMemory stagingBufferMemory = nullptr;
 	VkBufferCreateInfo stagingBufferCreateInfo{};
 	stagingBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	stagingBufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 	stagingBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	stagingBufferCreateInfo.size = sizeof(Particle) * NUM_PARTICLES;
+	stagingBufferCreateInfo.size = sizeof(float) * NUM_PARTICLES;
 
-	vkCreateBuffer(logicalDevice, &stagingBufferCreateInfo, nullptr, &stagingBuffer);
-
-	VkMemoryRequirements memreq;
-	vkGetBufferMemoryRequirements(logicalDevice, stagingBuffer, &memreq);
-
-	VkMemoryAllocateInfo allocInfo{};
-	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	allocInfo.allocationSize = memreq.size;
-	allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-	vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &stagingBufferMemory);
-
-	const float REST_DENS = 1000.0;
-	const float GAS_CONST = 35000.0;
-	const float PSI = 18.0 * REST_DENS;
-
-	float gamma = 3.0;
-	float pressure = GAS_CONST * (pow(PSI / REST_DENS, gamma) - 1.0);
-
+	std::vector<float> field;
 	std::vector<Particle> particles;
+	int gridRes = 10;
+
+	for (size_t i = 0; i < NUM_PARTICLES; i++)  {
+
+		int cell_x = (i % 10) - 5;
+		int cell_y = (i / 100) - 5;
+		int cell_z = (i / 10)%10 - 5;
+
+		float dist = sqrt(cell_x * cell_x + cell_y * cell_y + cell_z * cell_z);
+		
+		//std::cout << dist << "\n";
+		//std::cout << cell_x << " | " << cell_y << " | " << cell_z << "\n";
+
+		float fieldStrength = 1.0f;
+
+		if (dist > 5.0) {
+			fieldStrength = 0.0f;
+		}
+
+		//float random = randomFloat();
+		//if (random > 0.5) {
+		//	fieldStrength = 1.0f;// randomFloat() * 100.0f;
+		//}
+
+		field.push_back(fieldStrength);
+	}
+
+	for (size_t i = 0; i < NUM_PARTICLES; i++) {
+		
+		std::cout<<field[i]<<" ";
+
+		if (i % 10 == 0) {
+			std::cout << "|";
+		}
+		if (i % 100 == 0) {
+			std::cout << "\n";
+		}
+
+	}
+
 	for (size_t i = 0; i < NUM_PARTICLES; i++) {
 		Particle part;
-		part.pos = glm::vec4((((int)i % 10) - 5.0f) * 2.5f, (((int)i / 100)) * 2.5f, -1.0* ((((int)i % 100) / 10) - 5.0f) * 2.5f, 1.0f);
-		part.vel = glm::vec4(0.0f, 0.0f, 0.0f, pressure);
-		part.accel = glm::vec4(0.0f, 0.0f, 0.0f, PSI);
+
+		part.data = -1.0f;
+		//part.pos = glm::vec3(1.0f);
+		//part.normal = glm::vec3(-1.0f);
+
 		particles.push_back(part);
 	}
-	 
+
 	std::cout << "Pos Buffer Created\n";
 
-	vkBindBufferMemory(logicalDevice, stagingBuffer, stagingBufferMemory, 0);
-
-	void* data;
-	vkMapMemory(logicalDevice, stagingBufferMemory, 0, sizeof(Particle)*NUM_PARTICLES, 0, &data);
-	memcpy(data, particles.data(), (size_t)(sizeof(Particle)*NUM_PARTICLES));
-	vkUnmapMemory(logicalDevice, stagingBufferMemory);
-
 	for (size_t i = 0; i < swapChain.MAX_FRAMES_IN_FLIGHT; i++) {
-		for (size_t j = 0; j < 2; j++) {
-			VkCommandBufferAllocateInfo cmdAllocInfo{};
-			cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-			cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-			cmdAllocInfo.commandPool = commandPool;
-			cmdAllocInfo.commandBufferCount = 1;
 
-			VkCommandBuffer copyCommandBuffer;
-			vkAllocateCommandBuffers(logicalDevice, &cmdAllocInfo, &copyCommandBuffer);
-
-			VkCommandBufferBeginInfo copyBeginInfo{};
-			copyBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-			copyBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-			vkBeginCommandBuffer(copyCommandBuffer, &copyBeginInfo);
-
-			VkBufferCopy copyRegion{};
-			copyRegion.size = sizeof(Particle) * NUM_PARTICLES;
-			copyRegion.srcOffset = 0;
-			copyRegion.dstOffset = 0;
-			vkCmdCopyBuffer(copyCommandBuffer, stagingBuffer, posBuffer[i], 1, &copyRegion);
-
-			vkEndCommandBuffer(copyCommandBuffer);
-
-			VkSubmitInfo copySubmitInfo{};
-			copySubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-			copySubmitInfo.commandBufferCount = 1;
-			copySubmitInfo.pCommandBuffers = &copyCommandBuffer;
-
-			vkQueueSubmit(graphicsQueue, 1, &copySubmitInfo, VK_NULL_HANDLE);
-			vkQueueWaitIdle(graphicsQueue);
-
-			vkFreeCommandBuffers(logicalDevice, commandPool, 1, &copyCommandBuffer);
+		if (i == 1) {
+			stagingBufferCreateInfo.size = sizeof(Particle) * NUM_PARTICLES;
 		}
+
+		vkCreateBuffer(logicalDevice, &stagingBufferCreateInfo, nullptr, &stagingBuffer);
+
+		VkMemoryRequirements memreq;
+		vkGetBufferMemoryRequirements(logicalDevice, stagingBuffer, &memreq);
+
+		VkMemoryAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memreq.size;
+		allocInfo.memoryTypeIndex = findMemoryType(memreq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+		vkAllocateMemory(logicalDevice, &allocInfo, nullptr, &stagingBufferMemory);
+
+		vkBindBufferMemory(logicalDevice, stagingBuffer, stagingBufferMemory, 0);
+
+		void* data = nullptr;
+
+		if (i == 0) {
+			vkMapMemory(logicalDevice, stagingBufferMemory, 0, sizeof(float) * NUM_PARTICLES, 0, &data);
+			memcpy(data, field.data(), (size_t)(sizeof(float) * NUM_PARTICLES));
+			vkUnmapMemory(logicalDevice, stagingBufferMemory);
+		}
+		else {
+			vkMapMemory(logicalDevice, stagingBufferMemory, 0, sizeof(Particle) * NUM_PARTICLES, 0, &data);
+			memcpy(data, particles.data(), (size_t)(sizeof(Particle) * NUM_PARTICLES));
+			vkUnmapMemory(logicalDevice, stagingBufferMemory);
+		}
+
+		VkCommandBufferAllocateInfo cmdAllocInfo{};
+		cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmdAllocInfo.commandPool = commandPool;
+		cmdAllocInfo.commandBufferCount = 1;
+
+		VkCommandBuffer copyCommandBuffer;
+		vkAllocateCommandBuffers(logicalDevice, &cmdAllocInfo, &copyCommandBuffer);
+
+		VkCommandBufferBeginInfo copyBeginInfo{};
+		copyBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		copyBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		vkBeginCommandBuffer(copyCommandBuffer, &copyBeginInfo);
+
+		VkBufferCopy copyRegion{};
+		if (i==0)
+			copyRegion.size = sizeof(float) * NUM_PARTICLES;
+		else 
+			copyRegion.size = sizeof(Particle) * NUM_PARTICLES;
+		copyRegion.srcOffset = 0;
+		copyRegion.dstOffset = 0;
+		vkCmdCopyBuffer(copyCommandBuffer, stagingBuffer, posBuffer[i], 1, &copyRegion);
+
+		vkEndCommandBuffer(copyCommandBuffer);
+
+		VkSubmitInfo copySubmitInfo{};
+		copySubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		copySubmitInfo.commandBufferCount = 1;
+		copySubmitInfo.pCommandBuffers = &copyCommandBuffer;
+
+		vkQueueSubmit(graphicsQueue, 1, &copySubmitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(graphicsQueue);
+
+		vkFreeCommandBuffers(logicalDevice, commandPool, 1, &copyCommandBuffer);
 	}
 
 	vkDestroyBuffer(logicalDevice, stagingBuffer, nullptr);
@@ -1201,9 +1262,9 @@ void VulkanClass::createComputeDescriptorSet() {
 		descriptorWrites[0].pBufferInfo = &uniformBufferInfo;
 
 		VkDescriptorBufferInfo shaderStoragePrevFrame{};
-		shaderStoragePrevFrame.buffer = posBuffer[(i-1) % swapChain.MAX_FRAMES_IN_FLIGHT];
+		shaderStoragePrevFrame.buffer = posBuffer[0];
 		shaderStoragePrevFrame.offset = 0;
-		shaderStoragePrevFrame.range = sizeof(Particle) * NUM_PARTICLES;
+		shaderStoragePrevFrame.range = sizeof(float) * NUM_PARTICLES;
 
 		descriptorWrites[1] = {};
 		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1215,7 +1276,7 @@ void VulkanClass::createComputeDescriptorSet() {
 		descriptorWrites[1].pBufferInfo = &shaderStoragePrevFrame;
 
 		VkDescriptorBufferInfo shaderStorageNextFrame{};
-		shaderStorageNextFrame.buffer = posBuffer[i];
+		shaderStorageNextFrame.buffer = posBuffer[1];
 		shaderStorageNextFrame.offset = 0;
 		shaderStorageNextFrame.range = sizeof(Particle) * NUM_PARTICLES;
 
@@ -1276,7 +1337,7 @@ void VulkanClass::recordComputeCommandBuffer(VkCommandBuffer commandBuffer, uint
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSets[imageIndex], 0, 0);
 
-	vkCmdDispatch(commandBuffer, NUM_PARTICLES/256 + 1, 1, 1);
+	vkCmdDispatch(commandBuffer, 1000, 1, 1);
 
 	if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
 		throw std::runtime_error("Failed to Record Compute Command Buffer\n");

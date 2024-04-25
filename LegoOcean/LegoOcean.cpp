@@ -9,7 +9,7 @@ namespace win {
 }
 
 namespace camera {
-	glm::vec3 pos = glm::vec3(0.0f, -5.0f, -1000.0f);
+	glm::vec3 pos = glm::vec3(0.0f, -0.0f, -20.0f);
 	glm::vec3 fwd = glm::vec3(0.0f, 0.0f, 1.0f);
 	float angle = 0;
 	float Xangle = 0;
@@ -74,6 +74,32 @@ void windowResizeCallback(GLFWwindow* window, int width, int height) {
 
 }
 
+void diagnostics() {
+
+	Particle* buffer = reinterpret_cast<Particle*>(vk->posBufferMap[1]);
+
+	for (int i = 0; i < vk->NUM_PARTICLES; i++) {
+
+		/*if (buffer[i].size == 0) {
+			std::cout << "0 ";
+		}
+		else {
+			std::cout << "1 ";
+		}*/
+		std::cout << buffer[i].data << " ";
+
+		if ((i) % 10 == 0) {
+			std::cout << "|";
+		}
+		if ((i) % 100 == 0) {
+			std::cout << "\n";
+		}
+
+		//std::cout << buffer[i].pos.x << " | "  << buffer[i].pos.y << " | " << buffer[i].pos.z << "\n";
+	}
+
+}
+
 void display() {
 
 	vkWaitForFences(vk->getLogicalDevice(), 1, &vk->inFlightFence[hostSwapChain::currentFrame], VK_TRUE, UINT32_MAX);
@@ -82,6 +108,11 @@ void display() {
 
 	vkWaitForFences(vk->getLogicalDevice(), 1, &vk->computeInFlightFences[hostSwapChain::currentFrame], VK_TRUE, UINT64_MAX);
 
+	computeUniform.first = 0;
+	vk->computeUniform = computeUniform;
+
+	vk->updateCompute();
+
 	vk->draw(hostSwapChain::currentFrame);
 
 	hostSwapChain::currentFrame = (hostSwapChain::currentFrame + 1) % vk->getMaxFramesInFlight();
@@ -89,7 +120,7 @@ void display() {
 
 void idle() {
 
-	transform.M = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f)) * glm::mat4(1.0f);
+	transform.M = glm::scale(glm::mat4(1.0f), glm::vec3(0.5f)) * glm::mat4(1.0f);
 	transform.V = glm::lookAt(camera::pos, camera::pos + camera::fwd, glm::vec3(0.0f, 1.0f, 0.0f));
 	transform.P = glm::perspective(glm::radians(45.0f), win::width / (float)win::height, 0.1f, 1000.0f);
 	vk->transform = transform;
@@ -124,6 +155,8 @@ int main() {
 
 		idle();
 		display();
+
+		diagnostics();
 
 		glfwPollEvents();
 
